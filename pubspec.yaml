@@ -1,0 +1,60 @@
+name: aux_music
+description: "Collaborative YouTube music control for trips with friends"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+
+  # Server (Host Mode)
+  shelf: ^1.4.1
+  shelf_web_socket: ^1.0.4
+  shelf_router: ^1.1.4
+
+  # WebSocket Client (Guest Mode)
+  web_socket_channel: ^2.4.0
+
+  # YouTube Player
+  webview_flutter: ^4.4.2
+  webview_flutter_android: ^3.16.0
+
+  # QR Code
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^3.5.6
+
+  # Networking
+  network_info_plus: ^4.1.0
+  connectivity_plus: ^5.0.2
+
+  # Storage
+  shared_preferences: ^2.2.2
+
+  # Utilities
+  uuid: ^4.2.2
+  equatable: ^2.0.5
+  json_annotation: ^4.8.1
+
+  # UI
+  cached_network_image: ^3.3.0
+
+  # HTTP client for metadata
+  http: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
