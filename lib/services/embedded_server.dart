@@ -100,13 +100,17 @@ class EmbeddedServer {
       _handleRegister(channel, message);
     } else if (message is CommandMessage) {
       _handleCommand(message);
+      // Forward commands to host's player
+      _messageController.add(message);
     } else if (message is QueueAddMessage) {
       _handleQueueAdd(message);
+      // Emit queue update to host (not the add message, to avoid duplicate broadcast)
+      _messageController.add(QueueUpdateMessage(queue: _queue, reason: QueueUpdateReason.added));
     } else if (message is QueueRemoveMessage) {
       _handleQueueRemove(message);
+      // Emit queue update to host (not the remove message, to avoid duplicate broadcast)
+      _messageController.add(QueueUpdateMessage(queue: _queue, reason: QueueUpdateReason.removed));
     }
-
-    _messageController.add(message);
   }
 
   void _handleRegister(WebSocketChannel channel, RegisterMessage message) {
@@ -131,7 +135,11 @@ class EmbeddedServer {
     channel.sink.add(ack.encode());
 
     // Notify others about new user
-    _broadcast(UserJoinedMessage(user: client.toUser()), exclude: channel);
+    final userJoinedMsg = UserJoinedMessage(user: client.toUser());
+    _broadcast(userJoinedMsg, exclude: channel);
+
+    // Notify host about new user
+    _messageController.add(userJoinedMsg);
   }
 
   void _handleCommand(CommandMessage message) {
@@ -166,7 +174,11 @@ class EmbeddedServer {
   void _handleDisconnect(WebSocketChannel channel) {
     final client = _clients.remove(channel);
     if (client != null) {
-      _broadcast(UserLeftMessage(userId: client.id));
+      final userLeftMsg = UserLeftMessage(userId: client.id);
+      _broadcast(userLeftMsg);
+
+      // Notify host about user leaving
+      _messageController.add(userLeftMsg);
     }
   }
 
@@ -175,9 +187,9 @@ class EmbeddedServer {
     _broadcastState();
   }
 
-  void updateQueue(MusicQueue queue) {
+  void updateQueue(MusicQueue queue, QueueUpdateReason reason) {
     _queue = queue;
-    _broadcastQueueUpdate(QueueUpdateReason.songEnded);
+    _broadcastQueueUpdate(reason);
   }
 
   void _broadcastState() {
@@ -198,10 +210,19 @@ class EmbeddedServer {
   }
 
   Future<void> stop() async {
+    // Notify all clients that server is shutting down
+    _broadcast(ServerShutdownMessage(reason: 'Host ended the party'));
+
+    // Give clients a moment to receive the shutdown message
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Close all client connections
     for (final channel in _clients.keys) {
       await channel.sink.close();
     }
     _clients.clear();
+
+    // Close the server
     await _server?.close();
     _server = null;
     await _messageController.close();

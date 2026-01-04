@@ -35,7 +35,7 @@ class Session extends Equatable {
         'hostName': hostName,
       });
 
-  int get userCount => connectedUsers.length;
+  int get userCount => connectedUsers.where((u) => u.isGuest).length;
 
   Session copyWith({
     String? id,

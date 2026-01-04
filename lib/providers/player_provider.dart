@@ -81,12 +81,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     state = state.copyWith(volume: volume.clamp(0, 100));
   }
 
-  void loadVideo(String videoId) {
+  void loadVideo(String videoId, {String? title}) {
     _sendCommand(CommandMessage.load(videoId));
     state = state.copyWith(
       currentVideoId: videoId,
+      currentTitle: title ?? state.currentTitle, // Preserve existing title or use provided title
       status: PlayerStatus.loading,
     );
+  }
+
+  void requestVideoTitle(String videoId) {
+    _sendCommand(CommandMessage.requestTitle(videoId));
   }
 
   void _sendCommand(CommandMessage command) {

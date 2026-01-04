@@ -10,11 +10,50 @@ import '../../widgets/player/playback_controls.dart';
 import '../../widgets/queue/queue_list.dart';
 import '../home/home_screen.dart';
 
-class GuestControllerScreen extends ConsumerWidget {
+class GuestControllerScreen extends ConsumerStatefulWidget {
   const GuestControllerScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GuestControllerScreen> createState() => _GuestControllerScreenState();
+}
+
+class _GuestControllerScreenState extends ConsumerState<GuestControllerScreen> {
+  void _handleServerShutdown(String reason) {
+    // Disconnect the client
+    ref.read(sessionProvider.notifier).disconnect();
+
+    // Show dialog and navigate to home
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Party Ended'),
+        content: Text(reason),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Listen for server shutdown
+    ref.listen<SessionState>(sessionProvider, (previous, next) {
+      if (next.serverShutdown && !previous!.serverShutdown) {
+        _handleServerShutdown(next.shutdownReason ?? 'Host ended the party');
+      }
+    });
+
     final sessionState = ref.watch(sessionProvider);
     final playerState = ref.watch(playerProvider);
     final queue = ref.watch(queueProvider);
@@ -25,7 +64,7 @@ class GuestControllerScreen extends ConsumerWidget {
         title: Text(sessionState.session?.hostName ?? 'Party'),
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () => _confirmExit(context, ref),
+          onPressed: _confirmExit,
         ),
         actions: [
           // Connection indicator
@@ -57,7 +96,7 @@ class GuestControllerScreen extends ConsumerWidget {
       body: Column(
         children: [
           // Now Playing Card
-          _buildNowPlayingCard(context, currentSong, playerState),
+          _buildNowPlayingCard(currentSong, playerState),
           // Playback Controls
           const PlaybackControls(),
           // Queue Header
@@ -75,7 +114,7 @@ class GuestControllerScreen extends ConsumerWidget {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () => _showAddSongSheet(context, ref),
+                  onPressed: _showAddSongSheet,
                   icon: const Icon(Icons.add, size: 20),
                   label: const Text('Add Song'),
                 ),
@@ -91,7 +130,7 @@ class GuestControllerScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildNowPlayingCard(BuildContext context, dynamic currentSong, dynamic playerState) {
+  Widget _buildNowPlayingCard(dynamic currentSong, dynamic playerState) {
     if (currentSong == null) {
       return Container(
         margin: const EdgeInsets.all(16),
@@ -198,7 +237,7 @@ class GuestControllerScreen extends ConsumerWidget {
     );
   }
 
-  void _showAddSongSheet(BuildContext context, WidgetRef ref) {
+  void _showAddSongSheet() {
     final controller = TextEditingController();
 
     showModalBottomSheet(
@@ -250,7 +289,7 @@ class GuestControllerScreen extends ConsumerWidget {
     );
   }
 
-  void _confirmExit(BuildContext context, WidgetRef ref) {
+  void _confirmExit() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

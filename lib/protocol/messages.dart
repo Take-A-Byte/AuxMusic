@@ -33,6 +33,8 @@ abstract class WSMessage {
           return UserLeftMessage.fromJson(json);
         case 'error':
           return ErrorMessage.fromJson(json);
+        case 'server_shutdown':
+          return ServerShutdownMessage.fromJson(json);
         default:
           return null;
       }
@@ -165,6 +167,8 @@ class CommandMessage extends WSMessage {
   factory CommandMessage.seek(double seconds) => CommandMessage(action: 'seek', value: seconds);
   factory CommandMessage.volume(int level) => CommandMessage(action: 'volume', value: level);
   factory CommandMessage.load(String videoId) => CommandMessage(action: 'load', value: videoId);
+  factory CommandMessage.requestTitle(String videoId) => CommandMessage(action: 'requestTitle', value: videoId);
+  factory CommandMessage.playAtIndex(int index) => CommandMessage(action: 'playAtIndex', value: index);
 }
 
 // === QUEUE OPERATIONS ===
@@ -303,6 +307,28 @@ class ErrorMessage extends WSMessage {
     return ErrorMessage(
       code: json['code'] as String,
       message: json['message'] as String,
+    );
+  }
+}
+
+// === SERVER SHUTDOWN ===
+
+class ServerShutdownMessage extends WSMessage {
+  @override
+  final String type = 'server_shutdown';
+  final String reason;
+
+  ServerShutdownMessage({this.reason = 'Host ended the party'});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'reason': reason,
+      };
+
+  factory ServerShutdownMessage.fromJson(Map<String, dynamic> json) {
+    return ServerShutdownMessage(
+      reason: json['reason'] as String? ?? 'Host ended the party',
     );
   }
 }

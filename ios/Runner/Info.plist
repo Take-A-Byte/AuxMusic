@@ -45,5 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to your local network to host and join music sessions with nearby devices.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+		<string>_ws._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to scan QR codes for joining music sessions.</string>
 </dict>
 </plist>

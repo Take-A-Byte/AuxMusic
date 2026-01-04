@@ -7,6 +7,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/queue_provider.dart';
+import '../../services/server_service.dart';
 
 class YouTubePlayerWidget extends ConsumerStatefulWidget {
   const YouTubePlayerWidget({super.key});
@@ -16,7 +17,7 @@ class YouTubePlayerWidget extends ConsumerStatefulWidget {
 }
 
 class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
   bool _isReady = false;
   bool _playerApiReady = false;
 
@@ -27,8 +28,15 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
     _initWebView();
   }
 
-  void _initWebView() {
+  Future<void> _initWebView() async {
     debugPrint('[YouTubePlayer] _initWebView called, creating WebViewController');
+
+    // Start the server if not already running
+    final server = ServerService();
+    if (!server.isRunning) {
+      await server.start();
+      debugPrint('[YouTubePlayer] Server started at http://${server.localIP}:${server.port}');
+    }
 
     // Create platform-specific params for Android
     late final PlatformWebViewControllerCreationParams params;
@@ -38,7 +46,7 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
       params = const PlatformWebViewControllerCreationParams();
     }
 
-    _controller = WebViewController.fromPlatformCreationParams(params)
+    final controller = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
       ..addJavaScriptChannel(
@@ -59,7 +67,6 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
           onPageFinished: (url) {
             debugPrint('[YouTubePlayer] Page finished loading: $url');
             setState(() => _isReady = true);
-            // JS is already inline in HTML, no need to inject
           },
           onWebResourceError: (error) {
             debugPrint('[YouTubePlayer] WebResource error: ${error.description}');
@@ -69,14 +76,22 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
 
     // Enable media playback on Android
     if (Platform.isAndroid) {
-      final androidController = _controller.platform as AndroidWebViewController;
+      final androidController = controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
-      debugPrint('[YouTubePlayer] Android-specific: media playback gesture requirement disabled');
+      // Enable background audio playback
+      await androidController.setOnShowFileSelector((params) async => []);
+      debugPrint('[YouTubePlayer] Android-specific: media playback gesture requirement disabled, background audio enabled');
     }
 
-    // Load HTML - don't spoof youtube.com as baseUrl, it causes playback errors
-    _controller.loadHtmlString(_playerHtml);
-    debugPrint('[YouTubePlayer] WebViewController created and HTML loading started');
+    // Load HTML from server URL (so location.host will be set correctly for WebSocket)
+    final playerUrl = 'http://localhost:${server.port}/player.html';
+    await controller.loadRequest(Uri.parse(playerUrl));
+    debugPrint('[YouTubePlayer] Loading player from: $playerUrl');
+
+    // Set the controller and trigger rebuild
+    setState(() {
+      _controller = controller;
+    });
   }
 
   void _handleJsMessage(JavaScriptMessage message) {
@@ -94,6 +109,23 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
         debugPrint('[YouTubePlayer] Player API ready!');
         _playerApiReady = true;
         _loadCurrentSong();
+      } else if (type == 'videoInfo') {
+        // HTML player processed a URL and is sending back video info
+        debugPrint('[YouTubePlayer] Received videoInfo from HTML');
+        ref.read(queueProvider.notifier).addSongFromPlayerResponse(data);
+      } else if (type == 'playlistInfo') {
+        // HTML player processed a playlist and is sending back multiple videos
+        debugPrint('[YouTubePlayer] Received playlistInfo from HTML');
+        final videos = data['videos'] as List<dynamic>?;
+        if (videos != null) {
+          for (final video in videos) {
+            ref.read(queueProvider.notifier).addSongFromPlayerResponse(video as Map<String, dynamic>);
+          }
+        }
+      } else if (type == 'videoInfoUpdate') {
+        // HTML player is sending updated video info (e.g., real title for playlist video)
+        debugPrint('[YouTubePlayer] Received videoInfoUpdate from HTML');
+        ref.read(queueProvider.notifier).updateSongFromPlayerResponse(data);
       }
     } catch (e) {
       debugPrint('[YouTubePlayer] Error handling JS message: $e');
@@ -105,26 +137,69 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
     final currentSong = queue.currentSong;
     debugPrint('[YouTubePlayer] _loadCurrentSong called. currentSong: ${currentSong?.title}');
     if (currentSong != null) {
-      loadVideo(currentSong.videoId);
+      loadVideo(currentSong.videoId, title: currentSong.title);
     }
   }
 
-  void loadVideo(String videoId) {
-    debugPrint('[YouTubePlayer] loadVideo called with: $videoId');
-    if (videoId.startsWith('playlist:')) {
-      final playlistId = videoId.substring(9);
-      debugPrint('[YouTubePlayer] Loading playlist: $playlistId');
-      _controller.runJavaScript("loadPlaylist('$playlistId')");
-    } else {
-      debugPrint('[YouTubePlayer] Loading video: $videoId');
-      _controller.runJavaScript("loadVideo('$videoId')");
+  void loadVideo(String input, {String? title}) {
+    debugPrint('[YouTubePlayer] loadVideo called with: $input, title: $title');
+    if (_controller == null || input.isEmpty) return;
+
+    // Update player provider with title to avoid showing "Unknown Title"
+    if (title != null && title.isNotEmpty) {
+      ref.read(playerProvider.notifier).loadVideo(input, title: title);
     }
+
+    // Execute JavaScript directly in the WebView
+    final escapedInput = input.replaceAll("'", "\\'");
+    _controller!.runJavaScript("loadVideo('$escapedInput')");
+    debugPrint('[YouTubePlayer] Called JavaScript loadVideo with: $input');
   }
 
-  void play() => _controller.runJavaScript('player?.playVideo()');
-  void pause() => _controller.runJavaScript('player?.pauseVideo()');
-  void seekTo(double seconds) => _controller.runJavaScript('player?.seekTo($seconds, true)');
-  void setVolume(int volume) => _controller.runJavaScript('player?.setVolume($volume)');
+  void play() {
+    _controller?.runJavaScript('if(player) player.playVideo()');
+  }
+
+  void pause() {
+    _controller?.runJavaScript('if(player) player.pauseVideo()');
+  }
+
+  void stop() {
+    _controller?.runJavaScript('if(player) player.stopVideo()');
+  }
+
+  void seekTo(double seconds) {
+    _controller?.runJavaScript('if(player) player.seekTo($seconds, true)');
+  }
+
+  void setVolume(int volume) {
+    _controller?.runJavaScript('if(player) player.setVolume($volume)');
+  }
+
+  void nextVideo() {
+    _controller?.runJavaScript('if(player) player.nextVideo()');
+  }
+
+  void previousVideo() {
+    _controller?.runJavaScript('if(player) player.previousVideo()');
+  }
+
+  void requestVideoTitle(String videoId) {
+    debugPrint('[YouTubePlayer] Requesting title for videoId: $videoId');
+    _controller?.runJavaScript('fetchVideoTitle("$videoId")');
+  }
+
+  @override
+  void dispose() {
+    debugPrint('[YouTubePlayer] dispose called - stopping server');
+    // Stop the server when the player widget is disposed
+    final server = ServerService();
+    // Fire and forget - we can't await in dispose
+    server.stop().catchError((e) {
+      debugPrint('[YouTubePlayer] Error stopping server: $e');
+    });
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +231,9 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
         case 'pause':
           pause();
           break;
+        case 'stop':
+          stop();
+          break;
         case 'seek':
           seekTo(command.value as double);
           break;
@@ -165,6 +243,20 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
         case 'load':
           loadVideo(command.value as String);
           break;
+        case 'next':
+          nextVideo();
+          break;
+        case 'prev':
+        case 'previous':
+          previousVideo();
+          break;
+        case 'playAtIndex':
+          final index = command.value as int;
+          ref.read(queueProvider.notifier).playAtIndex(index);
+          break;
+        case 'requestTitle':
+          requestVideoTitle(command.value as String);
+          break;
       }
     });
 
@@ -172,8 +264,9 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
       color: Colors.black,
       child: Stack(
         children: [
-          WebViewWidget(controller: _controller),
-          if (!_isReady)
+          if (_controller != null)
+            WebViewWidget(controller: _controller!),
+          if (_controller == null || !_isReady)
             const Center(
               child: CircularProgressIndicator(color: AppColors.primary),
             ),
@@ -181,107 +274,4 @@ class _YouTubePlayerWidgetState extends ConsumerState<YouTubePlayerWidget> {
       ),
     );
   }
-
-  static const String _playerHtml = '''
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
-    #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="player"></div>
-  <script>
-    // Override console.log to send to Flutter
-    var originalLog = console.log;
-    console.log = function() {
-      var args = Array.prototype.slice.call(arguments);
-      var message = args.map(function(arg) {
-        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
-      }).join(' ');
-      if (window.ConsoleLog) {
-        ConsoleLog.postMessage(message);
-      }
-      originalLog.apply(console, arguments);
-    };
-    console.log('[HTML] Page loaded');
-  </script>
-  <script>
-    var player;
-    var stateInterval;
-
-    // YouTube IFrame API ready callback - called automatically by YouTube
-    // Using exact same playerVars as working player.html
-    function onYouTubeIframeAPIReady() {
-      console.log('[JS] onYouTubeIframeAPIReady called');
-      player = new YT.Player('player', {
-        height: '100%',
-        width: '100%',
-        playerVars: { autoplay: 0, rel: 0, modestbranding: 1 },
-        events: {
-          onReady: onPlayerReady,
-          onStateChange: onPlayerStateChange
-        }
-      });
-    }
-
-    function onPlayerReady(event) {
-      console.log('[JS] onPlayerReady');
-      FlutterChannel.postMessage(JSON.stringify({ type: 'ready' }));
-      stateInterval = setInterval(sendState, 1000);
-    }
-
-    function onPlayerStateChange(event) {
-      console.log('[JS] onPlayerStateChange:', event.data);
-      sendState();
-      if (event.data === YT.PlayerState.ENDED) {
-        FlutterChannel.postMessage(JSON.stringify({ type: 'videoEnded' }));
-      }
-    }
-
-    function sendState() {
-      if (!player || !player.getPlayerState) return;
-      try {
-        var state = player.getPlayerState();
-        var videoData = player.getVideoData() || {};
-        FlutterChannel.postMessage(JSON.stringify({
-          type: 'stateChange',
-          playerState: state,
-          currentTime: player.getCurrentTime() || 0,
-          duration: player.getDuration() || 0,
-          volume: player.getVolume() || 100,
-          videoId: videoData.video_id || '',
-          title: videoData.title || ''
-        }));
-      } catch (e) {
-        console.log('[JS] sendState error:', e.message);
-      }
-    }
-
-    function loadVideo(videoId) {
-      console.log('[JS] loadVideo:', videoId);
-      if (player && player.loadVideoById) {
-        player.loadVideoById(videoId);
-        // loadVideoById auto-plays, but call playVideo just in case
-        setTimeout(function() { player.playVideo && player.playVideo(); }, 500);
-      }
-    }
-
-    function loadPlaylist(playlistId) {
-      console.log('[JS] loadPlaylist:', playlistId);
-      if (player && player.loadPlaylist) {
-        player.loadPlaylist({ list: playlistId, listType: 'playlist', index: 0 });
-        setTimeout(function() { player.playVideo && player.playVideo(); }, 500);
-      }
-    }
-  </script>
-  <script src="https://www.youtube.com/iframe_api"></script>
-</body>
-</html>
-''';
 }

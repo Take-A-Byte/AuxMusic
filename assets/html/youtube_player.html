@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Player</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #player {
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="player"></div>
+
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        let player;
+        let ws;
+        let stateInterval;
+
+        function onYouTubeIframeAPIReady() {
+            console.log('YouTube IFrame API Ready');
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                playerVars: {
+                    autoplay: 0,
+                    rel: 0,
+                    modestbranding: 1,
+                    controls: 0,  // Hide playback controls
+                    iv_load_policy: 3,  // Hide video annotations
+                    fs: 0,  // Hide fullscreen button
+                    disablekb: 1  // Disable keyboard controls
+                },
+                events: {
+                    onReady: onPlayerReady,
+                    onStateChange: onPlayerStateChange
+                }
+            });
+        }
+
+        function onPlayerReady() {
+            console.log('Player ready');
+            // Notify Flutter that player is ready
+            if (typeof FlutterChannel !== 'undefined') {
+                FlutterChannel.postMessage(JSON.stringify({ type: 'ready' }));
+            }
+            sendState();
+        }
+
+        let lastVideoId = null;
+
+        function onPlayerStateChange(event) {
+            console.log('State changed:', event.data);
+
+            // Check if video ended (state 0)
+            if (event.data === 0 && typeof FlutterChannel !== 'undefined') {
+                FlutterChannel.postMessage(JSON.stringify({ type: 'videoEnded' }));
+            }
+
+            // Check if video changed (for playlists)
+            const currentVideoId = player?.getVideoData()?.video_id;
+            if (currentVideoId && currentVideoId !== lastVideoId) {
+                lastVideoId = currentVideoId;
+                // Send updated video info when video changes (to update the title)
+                // Give YouTube API time to load metadata, then retry if needed
+                setTimeout(() => sendVideoInfoUpdate(), 1000);
+            }
+
+            sendState();
+        }
+
+        function parseYouTubeInput(input) {
+            const result = { videoId: null, playlistId: null };
+            const playlistMatch = input.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+            if (playlistMatch) result.playlistId = playlistMatch[1];
+            const videoMatch = input.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+            if (videoMatch) result.videoId = videoMatch[1];
+            if (!result.videoId && input.match(/^[a-zA-Z0-9_-]{11}$/)) result.videoId = input;
+            if (!result.playlistId && input.match(/^(PL|RD|UU|LL|FL)[a-zA-Z0-9_-]+$/)) result.playlistId = input;
+            return result;
+        }
+
+        function loadVideo(input) {
+            console.log('loadVideo called with:', input);
+            if (!input) return;
+
+            const { videoId, playlistId } = parseYouTubeInput(input);
+
+            if (playlistId && player?.loadPlaylist) {
+                // Load playlist
+                player.loadPlaylist({ list: playlistId, listType: 'playlist', index: 0 });
+
+                // Wait for playlist to load, then send placeholder info
+                setTimeout(() => {
+                    sendPlaylistInfo();
+                    // Also send the first video's info with real title
+                    setTimeout(() => sendVideoInfoUpdate(), 1500);
+                }, 1000);
+            } else if (videoId && player?.loadVideoById) {
+                // Load single video
+                player.loadVideoById(videoId);
+
+                // Wait a bit for video to load, then send video info to Flutter
+                setTimeout(() => {
+                    sendVideoInfo();
+                }, 500);
+            }
+            sendState();
+        }
+
+        function sendVideoInfo() {
+            if (!player || typeof FlutterChannel === 'undefined') return;
+
+            const videoData = player.getVideoData();
+            if (!videoData || !videoData.video_id) return;
+
+            const videoInfo = {
+                type: 'videoInfo',
+                videoId: videoData.video_id,
+                title: videoData.title || 'Unknown Title',
+                author: videoData.author || '',
+                thumbnail: `https://i.ytimg.com/vi/${videoData.video_id}/mqdefault.jpg`,
+                duration: player.getDuration() || 0
+            };
+
+            console.log('Sending videoInfo to Flutter:', videoInfo);
+            FlutterChannel.postMessage(JSON.stringify(videoInfo));
+        }
+
+        function sendVideoInfoUpdate(retryCount = 0) {
+            if (!player || typeof FlutterChannel === 'undefined') return;
+
+            const videoData = player.getVideoData();
+            if (!videoData || !videoData.video_id) {
+                // Video data not ready yet, retry up to 3 times
+                if (retryCount < 3) {
+                    console.log('Video data not ready, retrying...', retryCount + 1);
+                    setTimeout(() => sendVideoInfoUpdate(retryCount + 1), 300);
+                }
+                return;
+            }
+
+            // Only send if we have a real title (not empty or generic)
+            const title = videoData.title;
+            if (!title || title === 'Unknown Title') {
+                // Title not ready yet, retry
+                if (retryCount < 3) {
+                    console.log('Title not ready, retrying...', retryCount + 1);
+                    setTimeout(() => sendVideoInfoUpdate(retryCount + 1), 300);
+                    return;
+                }
+            }
+
+            const videoInfo = {
+                type: 'videoInfoUpdate',
+                videoId: videoData.video_id,
+                title: title || 'Unknown Title',
+                author: videoData.author || '',
+                thumbnail: `https://i.ytimg.com/vi/${videoData.video_id}/mqdefault.jpg`,
+                duration: player.getDuration() || 0
+            };
+
+            console.log('Sending videoInfoUpdate to Flutter:', videoInfo);
+            FlutterChannel.postMessage(JSON.stringify(videoInfo));
+        }
+
+        function sendPlaylistInfo() {
+            if (!player || typeof FlutterChannel === 'undefined') return;
+
+            const playlist = player.getPlaylist();
+            if (!playlist || playlist.length === 0) return;
+
+            const videos = [];
+
+            // Get current video data for the first video
+            const firstVideoData = player.getVideoData();
+            const currentVideoId = firstVideoData?.video_id;
+
+            // Get info for each video in playlist
+            for (let i = 0; i < playlist.length; i++) {
+                const videoId = playlist[i];
+
+                // If this is the current video, use actual data
+                if (videoId === currentVideoId && firstVideoData) {
+                    videos.push({
+                        videoId: videoId,
+                        title: firstVideoData.title || 'Unknown Title',
+                        author: firstVideoData.author || '',
+                        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                        duration: player.getDuration() || 0
+                    });
+                } else {
+                    // For other videos, use placeholder that will be updated
+                    videos.push({
+                        videoId: videoId,
+                        title: `Loading...`, // Placeholder title
+                        author: '',
+                        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                        duration: 0
+                    });
+                }
+            }
+
+            const playlistInfo = {
+                type: 'playlistInfo',
+                videos: videos
+            };
+
+            console.log('Sending playlistInfo to Flutter:', playlistInfo);
+            FlutterChannel.postMessage(JSON.stringify(playlistInfo));
+        }
+
+        function sendState() {
+            if (!player?.getPlayerState) return;
+
+            const state = player.getPlayerState();
+            const playlist = player.getPlaylist?.() || [];
+            const index = player.getPlaylistIndex?.() ?? -1;
+            const stateData = {
+                type: 'stateChange',
+                playerState: state,
+                playing: state === 1,
+                currentTime: player.getCurrentTime?.() || 0,
+                duration: player.getDuration?.() || 0,
+                volume: player.getVolume?.() || 100,
+                videoId: player.getVideoData?.()?.video_id || '',
+                title: player.getVideoData?.()?.title || '',
+                playlistIndex: index,
+                playlistLength: playlist.length,
+                prevVideoId: index > 0 ? playlist[index - 1] : null,
+                nextVideoId: index < playlist.length - 1 ? playlist[index + 1] : null
+            };
+
+            // Send to Flutter if available (embedded player)
+            if (typeof FlutterChannel !== 'undefined') {
+                FlutterChannel.postMessage(JSON.stringify(stateData));
+            }
+
+            // Send to WebSocket if connected (for remote controllers)
+            if (ws?.readyState === 1) {
+                ws.send(JSON.stringify(stateData));
+            }
+        }
+
+        // Fetch video title using YouTube oEmbed API
+        async function fetchVideoTitle(videoId) {
+            console.log('fetchVideoTitle called for:', videoId);
+
+            try {
+                // Use YouTube oEmbed API to get video info
+                const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch video info');
+                }
+
+                const data = await response.json();
+
+                const videoInfo = {
+                    type: 'videoInfoUpdate',
+                    videoId: videoId,
+                    title: data.title || 'Unknown Title',
+                    author: data.author_name || '',
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                    duration: 0 // oEmbed doesn't provide duration
+                };
+
+                console.log('Sending fetched videoInfo to Flutter:', videoInfo);
+                if (typeof FlutterChannel !== 'undefined') {
+                    FlutterChannel.postMessage(JSON.stringify(videoInfo));
+                }
+            } catch (error) {
+                console.error('Error fetching video title:', error);
+                // Send back with error indicator
+                if (typeof FlutterChannel !== 'undefined') {
+                    FlutterChannel.postMessage(JSON.stringify({
+                        type: 'videoInfoUpdate',
+                        videoId: videoId,
+                        title: 'Unable to load title',
+                        author: '',
+                        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                        duration: 0
+                    }));
+                }
+            }
+        }
+
+        function connect() {
+            console.log('Connecting to WebSocket:', `ws://${location.host}`);
+            ws = new WebSocket(`ws://${location.host}`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                ws.send(JSON.stringify({ type: 'register', role: 'player' }));
+                if (stateInterval) clearInterval(stateInterval);
+                stateInterval = setInterval(sendState, 1000);
+            };
+
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                console.log('WebSocket message:', msg);
+                if (msg.type !== 'command' || !player) return;
+
+                switch (msg.action) {
+                    case 'play': player.playVideo?.(); break;
+                    case 'pause': player.pauseVideo?.(); break;
+                    case 'stop': player.stopVideo?.(); break;
+                    case 'seek': player.seekTo?.(msg.value, true); break;
+                    case 'volume': player.setVolume?.(msg.value); break;
+                    case 'next': player.nextVideo?.(); break;
+                    case 'prev': player.previousVideo?.(); break;
+                    case 'load':
+                        loadVideo(msg.value);
+                        break;
+                }
+                sendState();
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        // Start WebSocket connection
+        connect();
+    </script>
+</body>
+</html>
