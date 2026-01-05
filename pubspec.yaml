@@ -1,5 +1,5 @@
 name: aux_music
-description: "Collaborative YouTube music control for trips with friends"
+description: "Collaborative YouTube control for trips with friends"
 publish_to: 'none'
 version: 1.0.0+1
 

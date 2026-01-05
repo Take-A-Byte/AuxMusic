@@ -1,16 +1,50 @@
-# aux_music
+# Aux
 
-A new Flutter project.
+**Share the aux with friends** 🎵
 
-## Getting Started
+Aux is a collaborative YouTube control app designed for road trips, parties, and hangouts. One person hosts the session on a speaker-connected device, while friends join via QR code to add songs and control playback together.
 
-This project is a starting point for a Flutter application.
+## Why Aux?
 
-A few resources to get you started if this is your first Flutter project:
+- **No Accounts** - Just open and play, no sign-ups or logins
+- **No Ads** - Clean, distraction-free music experience
+- **Truly Collaborative** - Everyone can add songs and control playback
+- **Simple Setup** - One QR code scan and you're in
+- **Works Offline** - Connects directly over your local WiFi, no internet required for connection
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Features
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Host a Party** - Create a session, display a QR code, and connect to your speaker
+- **Join a Party** - Scan QR code to instantly join and control the music
+- **YouTube Library** - Play any YouTube video
+- **Shared Queue** - Everyone sees the same playlist in real-time
+- **Collaborative Control** - Add songs, see what's playing, and manage the queue together
+
+## How It Works
+
+### For the Host (Speaker Owner)
+
+1. Open Aux and tap **"Host a Party"**
+2. A QR code will appear on your screen
+3. Connect your phone to a speaker via Bluetooth or AUX
+4. Show the QR code to your friends
+
+### For Guests (Friends)
+
+1. Open Aux and tap **"Join a Party"**
+2. Scan the host's QR code
+3. Start adding songs and controlling playback
+
+That's it! Everyone on the same WiFi network can now control the music together.
+
+## Perfect For
+
+- Road trips with friends
+- House parties
+- Study sessions
+- Workout groups
+- Any time you want to share music control
+
+---
+
+Built with care for music lovers who believe everyone deserves a turn on the aux.
