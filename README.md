@@ -54,3 +54,5 @@ Enjoying Aux? Buy me a coffee to support development and keep the app free and a
 ---
 
 Built with care for music lovers who believe everyone deserves a turn on the aux.
+
+**Note:** Currently tested on iOS and Android devices only.
