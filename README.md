@@ -45,6 +45,12 @@ That's it! Everyone on the same WiFi network can now control the music together.
 - Workout groups
 - Any time you want to share music control
 
+## Support the Project
+
+Enjoying Aux? Buy me a coffee to support development and keep the app free and ad-free!
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/shantanu.methikar)
+
 ---
 
 Built with care for music lovers who believe everyone deserves a turn on the aux.
