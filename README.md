@@ -8,9 +8,9 @@ Aux is a collaborative YouTube control app designed for road trips, parties, and
 
 - **No Accounts** - Just open and play, no sign-ups or logins
 - **No Ads** - Clean, distraction-free music experience
+- **Works Offline** - Guests don't need internet, only the host does
 - **Truly Collaborative** - Everyone can add songs and control playback
 - **Simple Setup** - One QR code scan and you're in
-- **Works Offline** - Connects directly over your local WiFi, no internet required for connection
 
 ## Features
 
